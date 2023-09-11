@@ -29,6 +29,7 @@ from luna.gateware.usb.stream          import USBInStreamInterface
 from luna.gateware.stream.generator    import StreamSerializer
 from luna.gateware.utils.cdc           import synchronize
 from luna.gateware.architecture.car    import LunaECP5DomainGenerator
+from luna.gateware.architecture.adv    import ApolloAdvertiser
 
 from luna.gateware.interface.ulpi      import UTMITranslator
 from luna.gateware.usb.analyzer        import USBAnalyzer
@@ -227,6 +228,7 @@ class USBAnalyzerApplet(Elaboratable):
         # Create our USB uplink interface...
         try:
             uplink_ulpi = platform.request("control_phy")
+            m.submodules.advertiser = advertiser = ApolloAdvertiser()
         except ResourceError:
             uplink_ulpi = platform.request("host_phy")
         m.submodules.usb = usb = USBDevice(bus=uplink_ulpi)
@@ -234,6 +236,12 @@ class USBAnalyzerApplet(Elaboratable):
         # Add our standard control endpoint to the device.
         descriptors = self.create_descriptors()
         control_endpoint = usb.add_standard_control_endpoint(descriptors)
+
+        # If using a shared CONTROL port, support handoff back to MCU.
+        try:
+            control_ep.add_request_handler(advertiser.default_request_handler())
+        except NameError:
+            pass
 
         # Add our vendor request handler to the control endpoint.
         vendor_request_handler = USBAnalyzerVendorRequestHandler(state)

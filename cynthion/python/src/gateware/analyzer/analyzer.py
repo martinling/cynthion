@@ -8,7 +8,8 @@
 
 import unittest
 
-from amaranth          import Signal, Module, Elaboratable, Memory, Record, Mux, Cat
+from amaranth          import Signal, Module, Elaboratable, Memory, Record, Mux, Cat, C
+from enum              import IntEnum
 
 from luna.gateware.stream import StreamInterface
 from luna.gateware.test   import LunaGatewareTestCase, usb_domain_test_case
@@ -52,6 +53,9 @@ class USBAnalyzer(Elaboratable):
 
     # Header is 16-bit length and 16-bit timestamp.
     HEADER_SIZE_BYTES = 4
+
+    # Event is 0xFF marker, 8-bit event code and 16-bit timestamp.
+    EVENT_SIZE_BYTES = 4
 
     # Support a maximum payload size of 1024B, plus a 1-byte PID and a 2-byte CRC16.
     MAX_PACKET_SIZE_BYTES = 1024 + 1 + 2
@@ -113,10 +117,12 @@ class USBAnalyzer(Elaboratable):
         # Current receive status.
         packet_size     = Signal(16)
         packet_time     = Signal(16)
+        event_code      = Signal(8)
 
         # Triggers for memory write operations.
         write_packet    = Signal()
         write_header    = Signal()
+        write_event     = Signal()
 
         #
         # Read FIFO logic.
@@ -144,6 +150,9 @@ class USBAnalyzer(Elaboratable):
         #
         fifo_full = (fifo_byte_count == self.mem_size_bytes)
 
+        # Number of bytes pushed to the FIFO this cycle.
+        fifo_bytes_pushed = Signal(3)
+
         # Number of bytes popped from the FIFO this cycle.
         fifo_bytes_popped = Signal(1)
 
@@ -164,7 +173,7 @@ class USBAnalyzer(Elaboratable):
             ]
         # Otherwise, update the count acording to bytes pushed and popped.
         with m.Else():
-            fifo_next_count = fifo_byte_count - fifo_bytes_popped
+            fifo_next_count = fifo_byte_count + fifo_bytes_pushed - fifo_bytes_popped
             padding = fifo_bytes_pending & 1
             with m.If(data_commit):
                 m.d.usb += fifo_byte_count.eq(fifo_next_count + fifo_bytes_pending + padding)
@@ -208,6 +217,17 @@ class USBAnalyzer(Elaboratable):
                         packet_time        .eq(current_time),
                         current_time       .eq(0),
                     ]
+                with m.Elif(current_time == 0xFFFF):
+                    # The timestamp is about to wrap. Write a dummy event.
+                    m.d.comb += [
+                        write_event        .eq(1),
+                        event_code         .eq(USBAnalyzerEvent.NONE),
+                        fifo_bytes_pushed  .eq(self.EVENT_SIZE_BYTES),
+                    ]
+                    m.d.usb += [
+                        write_byte_addr    .eq(write_byte_addr + write_odd + self.EVENT_SIZE_BYTES),
+                    ]
+
 
 
             # Capture data until the packet is complete.
@@ -280,12 +300,29 @@ class USBAnalyzer(Elaboratable):
                         mem_write_port.en    .eq(0b11)
                     ]
                     m.next = "FINISH_HEADER"
+                with m.Elif(write_event):
+                    # Write event identifier and event code.
+                    m.d.comb += [
+                        mem_write_port.addr  .eq(next_word_addr),
+                        mem_write_port.data  .eq(Cat([event_code, C(0xFF, 8)])),
+                        mem_write_port.en    .eq(0b11),
+                    ]
+                    m.next = "FINISH_EVENT"
 
             # FINISH_HEADER: Write second word of header.
             with m.State("FINISH_HEADER"):
                 m.d.comb += [
                         mem_write_port.addr  .eq(header_word_addr + 1),
                         mem_write_port.data  .eq(packet_time),
+                        mem_write_port.en    .eq(0b11)
+                ]
+                m.next = "START"
+
+            # FINISH_EVENT: Write second word of event.
+            with m.State("FINISH_EVENT"):
+                m.d.comb += [
+                        mem_write_port.addr  .eq(next_word_addr + 1),
+                        mem_write_port.data  .eq(current_time),
                         mem_write_port.en    .eq(0b11)
                 ]
                 m.next = "START"
@@ -297,6 +334,9 @@ class USBAnalyzer(Elaboratable):
 
         return m
 
+
+class USBAnalyzerEvent(IntEnum):
+    NONE = 0
 
 
 class USBAnalyzerTest(LunaGatewareTestCase):

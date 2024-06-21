@@ -179,6 +179,10 @@ class USBAnalyzer(Elaboratable):
                 m.d.usb += fifo_byte_count.eq(fifo_next_count + fifo_bytes_pending + padding)
             with m.Else():
                 m.d.usb += fifo_byte_count.eq(fifo_next_count)
+                with m.If(write_event):
+                    m.d.comb += fifo_bytes_pushed.eq(self.EVENT_SIZE_BYTES)
+                    m.d.usb += write_byte_addr.eq(
+                        write_byte_addr + write_odd + self.EVENT_SIZE_BYTES)
 
         # Timestamp counter.
         current_time = Signal(16)
@@ -222,12 +226,7 @@ class USBAnalyzer(Elaboratable):
                     m.d.comb += [
                         write_event        .eq(1),
                         event_code         .eq(USBAnalyzerEvent.NONE),
-                        fifo_bytes_pushed  .eq(self.EVENT_SIZE_BYTES),
                     ]
-                    m.d.usb += [
-                        write_byte_addr    .eq(write_byte_addr + write_odd + self.EVENT_SIZE_BYTES),
-                    ]
-
 
 
             # Capture data until the packet is complete.

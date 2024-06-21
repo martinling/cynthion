@@ -10,6 +10,9 @@ from amaranth import Elaboratable, Module, Signal, Mux
 
 from luna.gateware.usb.usb2            import USBSpeed
 
+from .events import USBAnalyzerEvent
+
+
 class USBAnalyzerSpeedDetector(Elaboratable):
     """ Gateware that detects reset signaling on the USB bus.
 

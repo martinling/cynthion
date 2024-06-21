@@ -355,7 +355,7 @@ class USBAnalyzerApplet(Elaboratable):
         usb.add_endpoint(stream_ep)
 
         # Create a USB analyzer, and connect a register up to its output.
-        m.submodules.analyzer = analyzer = USBAnalyzer(utmi_interface=utmi)
+        m.submodules.analyzer = analyzer = USBAnalyzer(utmi, speed_selection)
 
         m.d.comb += [
             # Connect enable signal to host-controlled state register.

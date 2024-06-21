@@ -205,14 +205,28 @@ class USBAnalyzer(Elaboratable):
             # AWAIT_START: wait for capture to be enabled, but don't start mid-packet.
             with m.State("AWAIT_START"):
                 with m.If(self.capture_enable & ~self.utmi.rx_active):
+                    # Capture is being started.
                     m.next = "AWAIT_PACKET"
                     m.d.usb += current_time.eq(0)
+                    # Log a start event indicating the speed in use.
+                    start_event = USBAnalyzerEvent.CAPTURE_START_BASE \
+                                      + self.speed_selection
+                    m.d.comb += [
+                        write_event .eq(1),
+                        event_code  .eq(start_event),
+                    ]
 
 
             # AWAIT_PACKET: capture is enabled, wait for a packet to start.
             with m.State("AWAIT_PACKET"):
                 with m.If(~self.capture_enable):
+                    # Capture is being stopped.
                     m.next = "AWAIT_START"
+                    # Log a stop event.
+                    m.d.comb += [
+                        write_event        .eq(1),
+                        event_code         .eq(USBAnalyzerEvent.CAPTURE_STOP),
+                    ]
                 with m.Elif(self.utmi.rx_active):
                     m.next = "CAPTURE_PACKET"
                     m.d.usb += [

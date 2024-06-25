@@ -335,8 +335,8 @@ class USBAnalyzerApplet(Elaboratable):
             # Flush endpoint when analyzer is idle with capture disabled.
             stream_ep.flush             .eq(analyzer.idle & ~analyzer.capture_enable),
 
-            # Discard data buffered by endpoint when the analyzer discards its data.
-            stream_ep.discard           .eq(analyzer.discarding),
+            # Discard old data buffered by endpoint when the analyzer starts.
+            stream_ep.discard           .eq(analyzer.starting),
 
             # USB stream uplink.
             stream_ep.stream            .stream_eq(analyzer.stream),

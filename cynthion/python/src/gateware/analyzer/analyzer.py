@@ -220,7 +220,13 @@ class USBAnalyzer(Elaboratable):
             # AWAIT_PACKET: capture is enabled, wait for a packet to start.
             with m.State("AWAIT_PACKET"):
                 with m.If(~self.capture_enable):
+                    # Capture is being stopped.
                     m.next = "AWAIT_START"
+                    # Log a stop event.
+                    m.d.comb += [
+                        write_event        .eq(1),
+                        event_code         .eq(USBAnalyzerEvent.CAPTURE_STOP),
+                    ]
                 with m.Elif(self.utmi.rx_active):
                     m.next = "CAPTURE_PACKET"
                     m.d.usb += [
@@ -522,6 +528,41 @@ class USBAnalyzerTest(LunaGatewareTestCase):
         # There should then be one padding byte.
         self.assertEqual((yield self.dut.stream.valid), 1)
         yield
+
+        # We should now be out of data.
+        self.assertEqual((yield self.dut.stream.valid), 0)
+
+
+    @usb_domain_test_case
+    def test_stop_event(self):
+
+        # Start capture.
+        yield self.analyzer.capture_enable.eq(1)
+        yield
+
+        # Nothing happens for 0x123 cycles.
+        yield from self.advance_cycles(0x123)
+
+        # Stop capture.
+        yield self.analyzer.capture_enable.eq(0)
+        yield
+
+        # First we should get a start event with a timestamp of zero.
+        start_event = [0xFF, 0x04, 0x00, 0x00]
+
+        # Then, we should get an stop event with a timestamp of 0x123.
+        stop_event = [0xFF, 0x01, 0x01, 0x23]
+
+        # Validate that we get all of the expected bytes.
+        expected_data = start_event + stop_event
+        self.assertEqual((yield self.dut.stream.valid), 1)
+        yield self.dut.stream.ready.eq(1)
+        yield
+        received_data = []
+        for datum in expected_data:
+            received_data.append((yield self.dut.stream.payload))
+            yield
+        self.assertEqual(expected_data, received_data)
 
         # We should now be out of data.
         self.assertEqual((yield self.dut.stream.valid), 0)

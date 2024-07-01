@@ -338,6 +338,11 @@ class USBAnalyzerTestBase(LunaGatewareTestCase):
     SYNC_CLOCK_FREQUENCY = 120e6
     USB_CLOCK_FREQUENCY = 60e6
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        import sys
+        sys.setrecursionlimit(2000)
+
     def expect_data(self, expected_data):
         # Check the stream reports data available.
         self.assertEqual((yield self.stream.valid), 1)

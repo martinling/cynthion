@@ -85,10 +85,12 @@ class USBAnalyzer(Elaboratable):
         self.stream         = StreamInterface(payload_width=16)
 
         self.capture_enable = Signal()
+        self.discard_request = Signal()
         self.idle           = Signal()
         self.stopped        = Signal()
         self.overrun        = Signal()
         self.capturing      = Signal()
+        self.starting       = Signal()
         self.discarding     = Signal()
 
 
@@ -150,6 +152,9 @@ class USBAnalyzer(Elaboratable):
         # One word is popped if the FIFO stream is read.
         m.d.comb += fifo_words_popped.eq(self.stream.ready & self.stream.valid)
 
+        # Discard if starting, or if requested to.
+        m.d.comb += self.discarding.eq(self.starting | self.discard_request)
+
         # If discarding data, set the count to zero.
         with m.If(self.discarding):
             m.d.usb += [
@@ -181,7 +186,7 @@ class USBAnalyzer(Elaboratable):
                 self.stopped   .eq(f.ongoing("AWAIT_START") | f.ongoing("OVERRUN")),
                 self.overrun   .eq(f.ongoing("OVERRUN")),
                 self.capturing .eq(f.ongoing("CAPTURE_PACKET")),
-                self.discarding.eq(self.stopped & self.capture_enable),
+                self.starting  .eq(self.stopped & self.capture_enable),
             ]
 
             # AWAIT_START: wait for capture to be enabled, but don't start mid-packet.

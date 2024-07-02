@@ -343,6 +343,7 @@ class USBAnalyzerApplet(Elaboratable):
         m.d.comb += [
             # Connect enable signal to host-controlled state register.
             analyzer.capture_enable     .eq(state.current[0]),
+            analyzer.discard_request    .eq(state.current[3]),
 
             # Flush endpoint when analyzer is idle with capture disabled.
             stream_ep.flush             .eq(analyzer.idle & ~analyzer.capture_enable),

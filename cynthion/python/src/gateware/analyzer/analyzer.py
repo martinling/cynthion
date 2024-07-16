@@ -233,26 +233,30 @@ class USBAnalyzer(Elaboratable):
             # Capture data until the packet is complete.
             with m.State("CAPTURE_PACKET"):
 
-                byte_received = self.utmi.rx_valid & self.utmi.rx_active
+                # Is the packet still ongoing?
+                with m.If(self.utmi.rx_active):
 
-                # Capture data whenever RxValid is asserted.
-                m.d.comb += [
-                    write_packet    .eq(byte_received),
-                ]
+                    # Did we receive a byte?
+                    with m.If(self.utmi.rx_valid):
 
-                # Advance the write pointer each time we receive a bit.
-                with m.If(byte_received):
-                    m.d.usb += [
-                        packet_size        .eq(packet_size + 1),
-                    ]
+                        # Would one more word fill up our buffer?
+                        words_allocated = fifo_word_count + fifo_words_pending
+                        with m.If(words_allocated == self.mem_size_words - 1):
+                            # Discard the packet we were writing.
+                            m.d.sync += [
+                                write_byte_addr    .eq(header_word_addr << 1),
+                                fifo_words_pending .eq(0),
+                            ]
+                            # Instead, we'll write an event to record the overrun.
+                            m.next = "OVERRUN_EVENT"
 
-                    # If this would be filling up our data memory,
-                    # move to the OVERRUN state.
-                    with m.If(fifo_word_count + fifo_words_pending == self.mem_size_words - 1):
-                        m.next = "OVERRUN"
+                        with m.Else():
+                            # Write packet byte and increase packet size.
+                            m.d.comb += write_packet.eq(1)
+                            m.d.usb += packet_size.eq(packet_size + 1)
 
                 # If we've stopped receiving, write header.
-                with m.If(~self.utmi.rx_active):
+                with m.Else():
                     m.d.comb += [
                         write_header .eq(1),
                     ]
@@ -267,8 +271,18 @@ class USBAnalyzer(Elaboratable):
                 pass
 
 
+            with m.State("OVERRUN_EVENT"):
+                # Write an event to indicate the overrun.
+                m.d.comb += [
+                    write_event .eq(1),
+                    event_code  .eq(USBAnalyzerEvent.CAPTURE_FULL),
+                ]
+
+                # Wait in the OVERRUN state until restarted.
+                m.next = "OVERRUN"
+
+
             with m.State("OVERRUN"):
-                # TODO: we should probably set an overrun flag and then emit an EOP, here?
 
                 # If capture is stopped by the host, reset back to the ready state.
                 with m.If(~self.capture_enable):

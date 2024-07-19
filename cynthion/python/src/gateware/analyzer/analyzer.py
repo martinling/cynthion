@@ -201,17 +201,22 @@ class USBAnalyzer(Elaboratable):
                 with m.If(~self.capture_enable):
                     m.next = "AWAIT_START"
                 with m.Elif(self.utmi.rx_active):
-                    m.next = "CAPTURE_PACKET"
-                    m.d.usb += [
-                        header_word_addr   .eq(next_word_addr),
-                        write_byte_addr    .eq(write_byte_addr + write_odd + self.HEADER_SIZE_BYTES),
-                        packet_size        .eq(0),
-                        packet_time        .eq(current_time),
-                        current_time       .eq(0),
-                    ]
-                    m.d.sync += [
-                        fifo_words_pending .eq(self.HEADER_SIZE_WORDS),
-                    ]
+                    with m.If(fifo_word_count > self.mem_size_words - 1 - self.HEADER_SIZE_WORDS):
+                        # We don't have space to write a header for this packet, so we've overrun already.
+                        m.next = "OVERRUN"
+                    with m.Else():
+                        # Start capturing the packet; we might still overrun later as it grows.
+                        m.next = "CAPTURE_PACKET"
+                        m.d.usb += [
+                            header_word_addr   .eq(next_word_addr),
+                            write_byte_addr    .eq(write_byte_addr + write_odd + self.HEADER_SIZE_BYTES),
+                            packet_size        .eq(0),
+                            packet_time        .eq(current_time),
+                            current_time       .eq(0),
+                        ]
+                        m.d.sync += [
+                            fifo_words_pending .eq(self.HEADER_SIZE_WORDS),
+                        ]
                 with m.Elif(current_time == 0xFFFF):
                     # The timestamp is about to wrap. Write a dummy event.
                     m.d.comb += [
